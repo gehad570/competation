@@ -2,20 +2,28 @@ import streamlit as st
 import numpy as np
 import cv2
 import tensorflow as tf
+from tensorflow.keras import layers, Model
 from matplotlib import cm
 from io import BytesIO
 from PIL import Image
 import zipfile
+import pandas as pd # Ensure pandas is imported if used later
 
 # -------------------------
+
 # (1) Settings
-# -------------------------
-st.set_page_config(page_title="🌱 Land Classification", layout="wide")
-image_size = (128, 128)
 
 # -------------------------
-# (2) Functions
+
+st.set_page_config(page_title="🌱 Land Classification App", layout="wide")
+image_size = (128, 128)  # Model input size
+
 # -------------------------
+
+# (2) Preprocessing Functions
+
+# -------------------------
+
 def preprocess_image(img):
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img_resized = cv2.resize(img_rgb, image_size)
@@ -25,7 +33,7 @@ def preprocess_image(img):
 def overlay_mask(img, mask, alpha=0.6):
     # Resize mask to match original image
     mask_resized = cv2.resize(mask[:,:,0], (img.shape[1], img.shape[0]))
-    mask_bin = mask_resized > 0.5  # automatic threshold
+    mask_bin = mask_resized > 0.5
     overlay = img.copy()
     overlay[mask_bin] = (overlay[mask_bin] * (1-alpha) + np.array([0,255,0]) * alpha).astype(np.uint8)
     return overlay, mask_bin
@@ -45,8 +53,11 @@ def convert_to_bytes(img_array):
     return buf.getvalue()
 
 # -------------------------
+
 # (3) Load Model
+
 # -------------------------
+
 @st.cache_resource
 def load_model(model_path="model_unet.h5"):
     return tf.keras.models.load_model(model_path)
@@ -59,14 +70,22 @@ except:
     st.stop()
 
 # -------------------------
+
 # (4) UI
+
 # -------------------------
+
 st.title("🌱 Land Classification – Desert vs Agriculture")
 uploaded_files = st.file_uploader("Upload one or more aerial images", type=["jpg","png","jpeg"], accept_multiple_files=True)
 
+alpha = st.sidebar.slider("Overlay Transparency", 0.0, 1.0, 0.6)
+
 # -------------------------
+
 # (5) Process Each Image
+
 # -------------------------
+
 results = []
 if uploaded_files:
     st.subheader("Results")
@@ -74,32 +93,30 @@ if uploaded_files:
         file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
         img_display = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        
+
+        # Prediction
         img_pre = preprocess_image(img)
         pred_mask = model.predict(np.expand_dims(img_pre, 0))[0]
-        
-        overlay, mask_bin = overlay_mask(img_display, pred_mask)
+        pred_mask = np.clip(pred_mask, 0, 1)  # Ensure values are between 0 and 1
+
+        # Overlay and heatmap
+        overlay, mask_bin = overlay_mask(img_display, pred_mask, alpha=alpha)
         heatmap = heatmap_overlay(img_display, pred_mask)
         prop_agri = mask_bin.mean()
-        
+
         results.append({
             "name": uploaded_file.name,
             "overlay": overlay,
-            "mask": (pred_mask[:,:,0]*255).astype(np.uint8),
+            "mask": (pred_mask * 255).astype(np.uint8), # pred_mask is already 2D (height, width, 1) in the relevant part
             "heatmap": heatmap,
             "green_area": prop_agri
         })
-    
-    # -------------------------
+
     # Summary Table
-    # -------------------------
-    import pandas as pd
     summary = pd.DataFrame([{"File": r["name"], "Green Area (%)": r["green_area"]*100} for r in results])
     st.table(summary)
 
-    # -------------------------
     # Display Images
-    # -------------------------
     for r in results:
         st.subheader(f"File: {r['name']}")
         tab1, tab2, tab3, tab4 = st.tabs(["Overlay", "Mask", "Heatmap", "Original"])
@@ -110,11 +127,10 @@ if uploaded_files:
         with tab3:
             st.image(r["heatmap"], caption="Heatmap Overlay", use_column_width=True)
         with tab4:
-            st.image(convert_to_bytes(cv2.cvtColor(cv2.resize(img, image_size), cv2.COLOR_BGR2RGB)), caption="Original", use_column_width=True)
-    
-    # -------------------------
+            # Display original image (not resized by model input size but by original aspect ratio)
+            st.image(img_display, caption="Original", use_column_width=True)
+
     # Download as ZIP
-    # -------------------------
     if st.button("Download All Results as ZIP"):
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED) as zip_file:
