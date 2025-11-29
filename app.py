@@ -7,7 +7,7 @@ from matplotlib import cm
 from io import BytesIO
 from PIL import Image
 import zipfile
-import pandas as pd # Moved import to top for better practice
+import pandas as pd
 
 # -------------------------
 
@@ -15,7 +15,7 @@ import pandas as pd # Moved import to top for better practice
 
 # -------------------------
 
-st.set_page_config(page_title="🌱 Land Classification", layout="wide")
+st.set_page_config(page_title="🌱 Professional Land Classification", layout="wide")
 image_size = (128, 128)
 
 # -------------------------
@@ -30,17 +30,16 @@ def preprocess_image(img):
     img_normalized = img_resized / 255.0
     return img_normalized
 
-def overlay_mask(img, mask, threshold=0.5):
-    mask_bin = (mask[:,:,0] > threshold)
+def overlay_mask(img, mask, threshold=0.3, alpha=0.6):
+    mask_bin = mask[:,:,0] >= threshold
     overlay = img.copy()
-    overlay[mask_bin] = (overlay[mask_bin] * 0.4 + np.array([0,255,0]) * 0.6).astype(np.uint8)
+    overlay[mask_bin] = (overlay[mask_bin] * (1-alpha) + np.array([0,255,0]) * alpha).astype(np.uint8)
     return overlay, mask_bin
 
 def heatmap_overlay(img, mask):
     cmap = cm.get_cmap('Greens')
     heatmap = cmap(mask[:,:,0])
     heatmap_img = (heatmap[:,:,:3]*255).astype(np.uint8)
-    # The img passed here is (img_pre*255).astype(np.uint8) which is already RGB
     overlay = cv2.addWeighted(img, 0.6, heatmap_img, 0.4, 0)
     return overlay
 
@@ -75,8 +74,8 @@ except:
 
 st.title("🌱 Professional Land Classification – Desert vs Agriculture")
 uploaded_files = st.file_uploader("Upload one or more aerial images", type=["jpg","png","jpeg"], accept_multiple_files=True)
-
-threshold = st.sidebar.slider("Prediction Threshold", 0.0, 1.0, 0.5)
+threshold = st.sidebar.slider("Prediction Threshold", 0.0, 1.0, 0.3)
+alpha = st.sidebar.slider("Overlay Transparency", 0.0, 1.0, 0.6)
 
 # -------------------------
 
@@ -95,11 +94,8 @@ if uploaded_files:
         img_pre = preprocess_image(img)
         pred_mask = model.predict(np.expand_dims(img_pre, 0))[0]
 
-        # Prepare base image for overlay/heatmap (resized and converted back to 0-255 RGB)
-        img_pre_display = (img_pre * 255).astype(np.uint8)
-
-        overlay, mask_bin = overlay_mask(img_pre_display.copy(), pred_mask, threshold=threshold)
-        heatmap = heatmap_overlay(img_pre_display.copy(), pred_mask)
+        overlay, mask_bin = overlay_mask(img_display, pred_mask, threshold=threshold, alpha=alpha)
+        heatmap = heatmap_overlay(img_display, pred_mask)
         prop_agri = mask_bin.mean()
 
         results.append({
@@ -107,8 +103,7 @@ if uploaded_files:
             "overlay": overlay,
             "mask": (pred_mask[:,:,0]*255).astype(np.uint8),
             "heatmap": heatmap,
-            "green_area": prop_agri,
-            "original_resized": img_pre_display # Store resized original for consistent display
+            "green_area": prop_agri
         })
 
     # -------------------------
@@ -122,15 +117,15 @@ if uploaded_files:
     # -------------------------
     for r in results:
         st.subheader(f"File: {r['name']}")
-        tab1, tab2, tab3, tab4 = st.tabs(["Overlay", "Mask", "Heatmap", "Original Resized"])
+        tab1, tab2, tab3, tab4 = st.tabs(["Overlay", "Mask", "Heatmap", "Original"])
         with tab1:
-            st.image(r["overlay"], caption="Overlay", use_column_width=True)
+            st.image(r["overlay"], caption="Image with Mask Overlay", use_column_width=True)
         with tab2:
             st.image(r["mask"], caption="Predicted Mask", clamp=True, width=350)
         with tab3:
             st.image(r["heatmap"], caption="Heatmap Overlay", use_column_width=True)
         with tab4:
-            st.image(r["original_resized"], caption="Original Resized", use_column_width=True)
+            st.image(img_display, caption="Original", use_column_width=True)
 
     # -------------------------
     # Download as ZIP
