@@ -7,7 +7,7 @@ Original file is located at
     https://colab.research.google.com/drive/1JlCgfpyODjfTTE1-zVD5rnk3XPk_nq9b
 """
 
-pip install streamlit
+
 
 {"id":"58291","variant":"code","title":"Streamlit U-Net Deployment App"}
 import streamlit as st
