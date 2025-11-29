@@ -15,7 +15,7 @@ import pandas as pd # Moved import to top for better practice
 
 # -------------------------
 
-st.set_page_config(page_title="🌱 Professional Land Classification", layout="wide")
+st.set_page_config(page_title="🌱 Land Classification", layout="wide")
 image_size = (128, 128)
 
 # -------------------------
