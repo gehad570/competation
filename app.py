@@ -7,26 +7,25 @@ import matplotlib.pyplot as plt
 
 # -------------------------
 
-# Page config
+# إعداد صفحة التطبيق
 
 # -------------------------
 
 st.set_page_config(
-page_title="Agriculture Suitability Detector 🌱",
+page_title="كشف الأراضي المناسبة للزراعة 🌱",
 page_icon="🌿",
 layout="centered"
 )
 
-st.title("🌱 Agriculture Suitability Detector")
+st.title("🌱 كشف الأراضي الزراعية")
 st.write("""
-Upload an aerial image of a land area, and the app will predict which parts
-are suitable for agriculture using a U-Net segmentation model.
-Green areas indicate suitable regions.
+قم برفع صورة جوية لمنطقة أرضية، وسيقوم التطبيق بالتنبؤ بالأجزاء المناسبة للزراعة باستخدام نموذج U-Net.
+المناطق الخضراء تمثل المناطق المناسبة للزراعة.
 """)
 
 # -------------------------
 
-# Load the trained model
+# تحميل النموذج المدرب
 
 # -------------------------
 
@@ -36,11 +35,11 @@ model = tf.keras.models.load_model("simple_unet_model.h5", compile=False)
 return model
 
 model = load_unet_model()
-st.success("✅ Model loaded successfully!")
+st.success("✅ تم تحميل النموذج بنجاح!")
 
 # -------------------------
 
-# Image preprocessing
+# تحضير الصورة
 
 # -------------------------
 
@@ -54,7 +53,7 @@ return img
 
 # -------------------------
 
-# Show predictions
+# عرض التنبؤات
 
 # -------------------------
 
@@ -67,15 +66,15 @@ overlay[pred_mask_bin[:,:,0]==1] = (overlay[pred_mask_bin[:,:,0]==1]*0.4 + np.ar
 fig, ax = plt.subplots(1,3, figsize=(15,5))
 
 ax[0].imshow((img*255).astype(np.uint8))
-ax[0].set_title("Original Image")
+ax[0].set_title("الصورة الأصلية")
 ax[0].axis('off')
 
 ax[1].imshow(pred_mask[:,:,0], cmap='gray', vmin=0, vmax=1)
-ax[1].set_title("Predicted Mask")
+ax[1].set_title("القناع المتوقع")
 ax[1].axis('off')
 
 ax[2].imshow(overlay)
-ax[2].set_title("Overlay (Green = Suitable for Agriculture)")
+ax[2].set_title("الصورة مع التراكب (الأخضر = مناسب للزراعة)")
 ax[2].axis('off')
 
 st.pyplot(fig)
@@ -83,28 +82,28 @@ st.pyplot(fig)
 
 # -------------------------
 
-# File uploader
+# رفع الصورة
 
 # -------------------------
 
-uploaded_file = st.file_uploader("Upload an aerial image", type=["jpg","png","jpeg"])
+uploaded_file = st.file_uploader("قم برفع صورة جوية", type=["jpg","png","jpeg"])
 if uploaded_file is not None:
 file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
 img = cv2.imdecode(file_bytes, 1)
 img_preprocessed = preprocess_image(img)
 
 ```
-# Predict mask
+# التنبؤ بالقناع
 pred_mask = model.predict(np.expand_dims(img_preprocessed,0))[0]
 pred_mask_bin = (pred_mask > 0.5).astype(np.uint8)
 
-# Calculate proportion of suitable area
+# حساب نسبة الأرض المناسبة للزراعة
 prop_agri = np.sum(pred_mask_bin) / (pred_mask_bin.shape[0]*pred_mask_bin.shape[1])
 if prop_agri > 0.05:
-    st.success(f"🌱 This area is suitable for agriculture ({prop_agri*100:.2f}% green detected).")
+    st.success(f"🌱 هذه المنطقة مناسبة للزراعة ({prop_agri*100:.2f}% من المنطقة خضراء).")
 else:
-    st.warning(f"🏜️ This area is mostly desert ({prop_agri*100:.2f}% green detected).")
+    st.warning(f"🏜️ هذه المنطقة صحراء في الغالب ({prop_agri*100:.2f}% من المنطقة خضراء).")
 
-# Show predictions
+# عرض النتائج
 show_prediction(img_preprocessed, pred_mask)
 ```
