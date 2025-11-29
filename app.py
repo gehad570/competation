@@ -87,4 +87,3 @@ if uploaded_files:
             for r in results:
                 zip_file.writestr(f"overlay_{r['name']}", convert_to_bytes(r["overlay"]))
         st.download_button("Download ZIP", data=zip_buffer.getvalue(), file_name="all_overlays.zip", mime="application/zip")
-
