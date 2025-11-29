@@ -1,13 +1,11 @@
 import streamlit as st
 import numpy as np
 import cv2
-import tensorflow as tf
-from tensorflow.keras import layers, Model
 from matplotlib import cm
 from io import BytesIO
 from PIL import Image
 import zipfile
-import pandas as pd # Ensure pandas is imported if used later
+import pandas as pd
 
 # -------------------------
 
@@ -15,36 +13,14 @@ import pandas as pd # Ensure pandas is imported if used later
 
 # -------------------------
 
-st.set_page_config(page_title="🌱 Land Classification App", layout="wide")
-image_size = (128, 128)  # Model input size
+st.set_page_config(page_title="🌱 Green Area Detection", layout="wide")
+image_size = (128, 128)  # optional for resizing heatmap/overlay
 
 # -------------------------
 
-# (2) Preprocessing Functions
+# (2) Functions
 
 # -------------------------
-
-def preprocess_image(img):
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img_resized = cv2.resize(img_rgb, image_size)
-    img_normalized = img_resized / 255.0
-    return img_normalized
-
-def overlay_mask(img, mask, alpha=0.6):
-    # Resize mask to match original image
-    mask_resized = cv2.resize(mask[:,:,0], (img.shape[1], img.shape[0]))
-    mask_bin = mask_resized > 0.5
-    overlay = img.copy()
-    overlay[mask_bin] = (overlay[mask_bin] * (1-alpha) + np.array([0,255,0]) * alpha).astype(np.uint8)
-    return overlay, mask_bin
-
-def heatmap_overlay(img, mask):
-    mask_resized = cv2.resize(mask[:,:,0], (img.shape[1], img.shape[0]))
-    cmap = cm.get_cmap('Greens')
-    heatmap = cmap(mask_resized)
-    heatmap_img = (heatmap[:,:,:3]*255).astype(np.uint8)
-    overlay = cv2.addWeighted(img, 0.6, heatmap_img, 0.4, 0)
-    return overlay
 
 def convert_to_bytes(img_array):
     im_pil = Image.fromarray(img_array)
@@ -52,37 +28,38 @@ def convert_to_bytes(img_array):
     im_pil.save(buf, format="PNG")
     return buf.getvalue()
 
-# -------------------------
+def green_area_from_image(img):
+    """Detect green pixels and return binary mask and fraction"""
+    r, g, b = img[:,:,0], img[:,:,1], img[:,:,2]
+    green_mask = (g > 100) & (g > r) & (g > b)
+    fraction = green_mask.mean()
+    return green_mask, fraction
 
-# (3) Load Model
+def overlay_mask(img, mask, alpha=0.6):
+    overlay = img.copy()
+    overlay[mask] = (overlay[mask] * (1-alpha) + np.array([0,255,0]) * alpha).astype(np.uint8)
+    return overlay
 
-# -------------------------
-
-@st.cache_resource
-def load_model(model_path="model_unet.h5"):
-    return tf.keras.models.load_model(model_path)
-
-try:
-    model = load_model("model_unet.h5")
-    st.sidebar.success("✅ Model loaded successfully!")
-except:
-    st.sidebar.error("❌ Could not load model_unet.h5. Upload it to the same folder.")
-    st.stop()
-
-# -------------------------
-
-# (4) UI
+def heatmap_overlay(img, mask):
+    cmap = cm.get_cmap('Greens')
+    heatmap = cmap(mask.astype(float))
+    heatmap_img = (heatmap[:,:,:3]*255).astype(np.uint8)
+    overlay = cv2.addWeighted(img, 0.6, heatmap_img, 0.4, 0)
+    return overlay
 
 # -------------------------
 
-st.title("🌱 Land Classification – Desert vs Agriculture")
-uploaded_files = st.file_uploader("Upload one or more aerial images", type=["jpg","png","jpeg"], accept_multiple_files=True)
+# (3) UI
 
+# -------------------------
+
+st.title("🌱 Green Area Detection – Desert vs Agriculture")
+uploaded_files = st.file_uploader("Upload one or more images", type=["jpg","png","jpeg"], accept_multiple_files=True)
 alpha = st.sidebar.slider("Overlay Transparency", 0.0, 1.0, 0.6)
 
 # -------------------------
 
-# (5) Process Each Image
+# (4) Process Each Image
 
 # -------------------------
 
@@ -92,24 +69,21 @@ if uploaded_files:
     for uploaded_file in uploaded_files:
         file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        img_display = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        # Prediction
-        img_pre = preprocess_image(img)
-        pred_mask = model.predict(np.expand_dims(img_pre, 0))[0]
-        pred_mask = np.clip(pred_mask, 0, 1)  # Ensure values are between 0 and 1
+        # Detect green pixels
+        green_mask, green_fraction = green_area_from_image(img_rgb)
 
-        # Overlay and heatmap
-        overlay, mask_bin = overlay_mask(img_display, pred_mask, alpha=alpha)
-        heatmap = heatmap_overlay(img_display, pred_mask)
-        prop_agri = mask_bin.mean()
+        # Create overlays
+        overlay = overlay_mask(img_rgb, green_mask, alpha=alpha)
+        heatmap = heatmap_overlay(img_rgb, green_mask)
 
         results.append({
             "name": uploaded_file.name,
             "overlay": overlay,
-            "mask": (pred_mask * 255).astype(np.uint8), # pred_mask is already 2D (height, width, 1) in the relevant part
+            "mask": (green_mask*255).astype(np.uint8),
             "heatmap": heatmap,
-            "green_area": prop_agri
+            "green_area": green_fraction
         })
 
     # Summary Table
@@ -123,19 +97,18 @@ if uploaded_files:
         with tab1:
             st.image(r["overlay"], caption="Overlay", use_column_width=True)
         with tab2:
-            st.image(r["mask"], caption="Predicted Mask", clamp=True, width=350)
+            st.image(r["mask"], caption="Binary Mask", clamp=True, width=350)
         with tab3:
             st.image(r["heatmap"], caption="Heatmap Overlay", use_column_width=True)
         with tab4:
-            # Display original image (not resized by model input size but by original aspect ratio)
-            st.image(img_display, caption="Original", use_column_width=True)
+            st.image(img_rgb, caption="Original Image", use_column_width=True)
 
     # Download as ZIP
     if st.button("Download All Results as ZIP"):
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED) as zip_file:
-            for r in results:
-                zip_file.writestr(f"overlay_{r['name']}", convert_to_bytes(r["overlay"]))
-                zip_file.writestr(f"mask_{r['name']}", convert_to_bytes(r["mask"]))
-                zip_file.writestr(f"heatmap_{r['name']}", convert_to_bytes(r["heatmap"]))
+            for r_download in results:
+                zip_file.writestr(f"overlay_{r_download['name']}", convert_to_bytes(r_download["overlay"]))
+                zip_file.writestr(f"mask_{r_download['name']}", convert_to_bytes(r_download["mask"]))
+                zip_file.writestr(f"heatmap_{r_download['name']}", convert_to_bytes(r_download["heatmap"]))
         st.download_button("Download ZIP", data=zip_buffer.getvalue(), file_name="all_results.zip", mime="application/zip")
